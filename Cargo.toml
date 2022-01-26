@@ -1,5 +1,5 @@
 [package]
-name = "eframe_template"
+name = "desktop_timer"
 version = "0.1.0"
 authors = ["Emil Ernerfeldt <emil.ernerfeldt@gmail.com>"]
 edition = "2021"
@@ -11,9 +11,10 @@ rust-version = "1.56"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+chrono = "0.4"
 eframe = "0.16.0" # Gives us egui, epi and web+native backends
-
 serde = { version = "1", features = ["derive"], optional = true }
+tokio = { version = "1.15", features = ["rt", "time", "macros", "rt-multi-thread"] }
 
 [features]
 default = []
