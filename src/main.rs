@@ -6,7 +6,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() {
-    let app = eframe_template::TemplateApp::default();
+    let app = desktop_timer::TemplateApp::default();
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(Box::new(app), native_options);
 }
