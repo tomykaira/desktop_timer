@@ -1,5 +1,7 @@
 use eframe::egui::{Color32, FontDefinitions, FontFamily, RichText, TextEdit, TextStyle};
 use eframe::{egui, epi};
+use rodio::source::{SineWave, Source};
+use rodio::{OutputStream, Sink};
 use std::ops::Add;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{task, time};
@@ -143,7 +145,7 @@ impl epi::App for TemplateApp {
                         let timer_duration = Duration::from_secs(total_secs as u64);
                         if timer_duration <= since_start {
                             // time up
-                            // TODO: beep
+                            play_beep();
                             ui.colored_label(Color32::RED, "00:00:00");
 
                             if timer.auto_restart {
@@ -218,4 +220,24 @@ impl epi::App for TemplateApp {
             });
         }
     }
+}
+
+fn play_beep() {
+    task::spawn(async {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+
+        // Add a dummy source of the sake of the example.
+        let duration = Duration::from_secs_f32(0.25);
+        let g5 = SineWave::new(783.9).take_duration(duration);
+        let f5 = SineWave::new(698.4).take_duration(duration);
+        let potato = g5
+            .clone()
+            .mix(f5.clone().delay(duration))
+            .mix(g5.clone().delay(duration * 2));
+        let potato2 = potato.clone().mix(potato.delay(duration * 4));
+        sink.append(potato2);
+        // sleep_until_end is required, so run beep process in a dedicated thread.
+        sink.sleep_until_end();
+    });
 }
