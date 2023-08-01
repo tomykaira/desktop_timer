@@ -1,5 +1,6 @@
-use eframe::egui::{Color32, FontDefinitions, FontFamily, RichText, TextEdit, TextStyle};
-use eframe::{egui, epi};
+use eframe;
+use eframe::egui::{Color32, FontFamily, FontId, RichText, TextEdit, TextStyle};
+use eframe::egui;
 use rodio::source::{SineWave, Source};
 use rodio::{OutputStream, Sink};
 use std::ops::Add;
@@ -48,80 +49,71 @@ impl Default for Timer {
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-    // Example stuff:
     timers: Vec<Timer>,
+    flash_count: u32,
 }
 
-impl Default for TemplateApp {
-    fn default() -> Self {
-        Self { timers: vec![] }
-    }
-}
-
-impl epi::App for TemplateApp {
-    fn name(&self) -> &str {
-        "eframe template"
-    }
-
-    /// Called once before the first frame.
-    fn setup(
-        &mut self,
-        ctx: &egui::CtxRef,
-        frame: &epi::Frame,
-        storage: Option<&dyn epi::Storage>,
-    ) {
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
-        #[cfg(feature = "persistence")]
-        if let Some(storage) = storage {
-            *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
-        }
-
+impl TemplateApp {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Switch to light mode
-        ctx.set_visuals(egui::Visuals::light());
+        cc.egui_ctx.set_visuals(egui::Visuals::light());
 
-        // Resize all fonts
-        let mut fonts = FontDefinitions::default();
+        let mut style = (*cc.egui_ctx.style()).clone();
+        style.text_styles = [
+            (TextStyle::Body, FontId::new(28.0, FontFamily::Proportional)),
+            (TextStyle::Small, FontId::new(24.0, FontFamily::Proportional)),
+            (TextStyle::Button, FontId::new(16.0, FontFamily::Proportional)),
+        ]
+            .into();
+        cc.egui_ctx.set_style(style);
 
-        // Large button text:
-        fonts
-            .family_and_size
-            .insert(TextStyle::Body, (FontFamily::Proportional, 32.0));
-        fonts
-            .family_and_size
-            .insert(TextStyle::Small, (FontFamily::Proportional, 28.0));
-
-        ctx.set_fonts(fonts);
-
-        let frame = frame.clone();
+        let ctx = cc.egui_ctx.to_owned();
         task::spawn(async move {
             let mut interval = time::interval(Duration::from_millis(100));
 
             loop {
                 interval.tick().await;
-                frame.request_repaint();
+                ctx.request_repaint();
             }
         });
-    }
 
-    /// Called by the frame work to save state before shutdown.
-    /// Note that you must enable the `persistence` feature for this to work.
-    #[cfg(feature = "persistence")]
-    fn save(&mut self, storage: &mut dyn epi::Storage) {
-        epi::set_value(storage, epi::APP_KEY, self);
-    }
+        let mut app = Self::default();
 
+        // Load previous app state (if any).
+        // Note that you must enable the `persistence` feature for this to work.
+        #[cfg(feature = "persistence")]
+        if let Some(storage) = cc.storage {
+            app = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
+        }
+
+        app
+    }
+}
+
+impl Default for TemplateApp {
+    fn default() -> Self {
+        Self { timers: vec![], flash_count: 0 }
+    }
+}
+
+impl eframe::App for TemplateApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
-    fn update(&mut self, ctx: &egui::CtxRef, _frame: &epi::Frame) {
-        let Self { timers } = self;
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let Self { timers, flash_count } = self;
 
         ctx.set_pixels_per_point(2.0f32);
         let now = chrono::Local::now();
         let time = now.format("%H:%M:%S").to_string();
         let date = now.format("%Y/%m/%d %a").to_string();
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        let mut frm = egui::containers::Frame::default();
+        frm = frm.fill( if *flash_count % 2 == 1 { Color32::RED } else { Color32::LIGHT_GRAY });
+        if *flash_count > 0 {
+            *flash_count -= 1;
+        }
+
+        egui::CentralPanel::default().frame(frm).show(ctx, |ui| {
             // Current time
             ui.horizontal(|ui| {
                 ui.label(RichText::from(time));
@@ -145,10 +137,11 @@ impl epi::App for TemplateApp {
                         let timer_duration = Duration::from_secs(total_secs as u64);
                         if timer_duration <= since_start {
                             // time up
-                            play_beep();
                             ui.colored_label(Color32::RED, "00:00:00");
 
                             if timer.auto_restart {
+                                play_beep();
+                                *flash_count = 10;
                                 timer.start();
                             }
                         } else {
@@ -167,17 +160,17 @@ impl epi::App for TemplateApp {
                         }
                     } else {
                         TextEdit::singleline(&mut timer.hours)
-                            .desired_width(32.0)
+                            .desired_width(40.0)
                             .show(ui)
                             .response;
                         ui.label(":");
                         TextEdit::singleline(&mut timer.minutes)
-                            .desired_width(32.0)
+                            .desired_width(40.0)
                             .show(ui)
                             .response;
                         ui.label(":");
                         TextEdit::singleline(&mut timer.seconds)
-                            .desired_width(32.0)
+                            .desired_width(40.0)
                             .show(ui)
                             .response;
                         if ui.button("Start").clicked() {
@@ -204,21 +197,13 @@ impl epi::App for TemplateApp {
                 timers.push(Timer::default());
             }
         });
+    }
 
-        if false {
-            egui::Window::new("Window").show(ctx, |ui| {
-                ui.hyperlink("https://github.com/emilk/eframe_template");
-                ui.add(egui::github_link_file!(
-                    "https://github.com/emilk/eframe_template/blob/master/",
-                    "Source code."
-                ));
-                egui::warn_if_debug_build(ui);
-                ui.label("Windows can be moved by dragging them.");
-                ui.label("They are automatically sized based on contents.");
-                ui.label("You can turn on resizing and scrolling if you like.");
-                ui.label("You would normally chose either panels OR windows.");
-            });
-        }
+    /// Called by the frame work to save state before shutdown.
+    /// Note that you must enable the `persistence` feature for this to work.
+    #[cfg(feature = "persistence")]
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, eframe::APP_KEY, self);
     }
 }
 
