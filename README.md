@@ -76,3 +76,9 @@ You can test the template app at <https://emilk.github.io/eframe_template/>.
 As of 2022, egui is in active development with frequent releases with breaking changes. [eframe_template](https://github.com/emilk/eframe_template/) will be updated in lock-step to always use the latest version of egui.
 
 When updating `egui` and `eframe` it is recommended you do so one version at the time, and read about the changes in [the egui changelog](https://github.com/emilk/egui/blob/master/CHANGELOG.md) and [eframe changelog](https://github.com/emilk/egui/blob/master/eframe/CHANGELOG.md).
+
+## Deploying to local
+
+``` sh
+cargo.exe install --path . --features persistence
+```
