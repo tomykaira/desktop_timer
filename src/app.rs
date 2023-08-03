@@ -1,5 +1,5 @@
 use eframe;
-use eframe::egui::{Color32, FontFamily, FontId, RichText, TextEdit, TextStyle};
+use eframe::egui::{Color32, FontFamily, FontId, Margin, RichText, TextEdit, TextStyle};
 use eframe::egui;
 use rodio::source::{SineWave, Source};
 use rodio::{OutputStream, Sink};
@@ -15,20 +15,61 @@ pub struct Timer {
     minutes: String,
     seconds: String,
     started_ms: Option<u64>,
+    pause_elapsed_ms: Option<u64>,
     auto_restart: bool,
 }
 
 impl Timer {
     fn start(&mut self) {
+        self.started_ms = Some(Self::time_millis());
+    }
+
+    fn pause(&mut self) {
+        if let (None, Some(start))  = (self.pause_elapsed_ms, self.started_ms) {
+            self.pause_elapsed_ms = Some(Self::time_millis() - start);
+        }
+    }
+
+    fn unpause(&mut self) {
+        if let Some(paused) = self.pause_elapsed_ms {
+            self.started_ms = Some(Self::time_millis() - paused);
+            self.pause_elapsed_ms = None;
+        }
+    }
+
+    fn time_millis() -> u64 {
         let start = SystemTime::now();
         let since_the_epoch = start
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
-        self.started_ms = Some(since_the_epoch.as_millis() as u64);
+        return since_the_epoch.as_millis() as u64;
     }
 
     fn reset(&mut self) {
         self.started_ms = None;
+        self.pause_elapsed_ms = None;
+    }
+
+    fn rest_duration(&self) -> Option<Duration> {
+        let s = self.started_ms?;
+        let now = SystemTime::now();
+        let start = UNIX_EPOCH.add(Duration::from_millis(s));
+        let elapsed =
+            if let Some(p) = self.pause_elapsed_ms {
+                Duration::from_millis(p)
+            } else {
+                now.duration_since(start).expect("Time went backwards")
+            };
+        let hours = self.hours.parse::<u32>().expect("invalid hours");
+        let minutes = self.minutes.parse::<u32>().expect("invalid minutes");
+        let seconds = self.seconds.parse::<u32>().expect("invalid seconds");
+        let total_secs = hours * 3600 + minutes * 60 + seconds;
+        let timer_duration = Duration::from_secs(total_secs as u64);
+        if timer_duration <= elapsed {
+            Some(Duration::ZERO)
+        } else {
+            Some(timer_duration - elapsed)
+        }
     }
 }
 
@@ -40,6 +81,7 @@ impl Default for Timer {
             minutes: String::from("0"),
             seconds: String::from("0"),
             started_ms: None,
+            pause_elapsed_ms: None,
             auto_restart: false,
         }
     }
@@ -108,7 +150,8 @@ impl eframe::App for TemplateApp {
         let date = now.format("%Y/%m/%d %a").to_string();
 
         let mut frm = egui::containers::Frame::default();
-        frm = frm.fill( if *flash_count % 2 == 1 { Color32::RED } else { Color32::LIGHT_GRAY });
+        frm = frm.inner_margin(Margin::same(10.0));
+        frm = frm.fill( if *flash_count % 2 == 1 { Color32::RED } else { Color32::from_rgb(240, 240, 240) });
         if *flash_count > 0 {
             *flash_count -= 1;
         }
@@ -126,16 +169,8 @@ impl eframe::App for TemplateApp {
             let mut remove_indices = vec![];
             for (idx, timer) in timers.as_mut_slice().iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    if let Some(s) = timer.started_ms {
-                        let now = SystemTime::now();
-                        let start = UNIX_EPOCH.add(Duration::from_millis(s));
-                        let since_start = now.duration_since(start).expect("Time went backwards");
-                        let hours = timer.hours.parse::<u32>().expect("invalid hours");
-                        let minutes = timer.minutes.parse::<u32>().expect("invalid minutes");
-                        let seconds = timer.seconds.parse::<u32>().expect("invalid seconds");
-                        let total_secs = hours * 3600 + minutes * 60 + seconds;
-                        let timer_duration = Duration::from_secs(total_secs as u64);
-                        if timer_duration <= since_start {
+                    if let Some(r) = timer.rest_duration() {
+                        if r.is_zero() {
                             // time up
                             ui.colored_label(Color32::RED, "00:00:00");
 
@@ -145,8 +180,7 @@ impl eframe::App for TemplateApp {
                                 timer.start();
                             }
                         } else {
-                            let rest = timer_duration - since_start;
-                            let rest_sec = rest.as_secs();
+                            let rest_sec = r.as_secs();
 
                             let rest_h = rest_sec / 3600;
                             let rest_m = (rest_sec % 3600) / 60;
@@ -157,6 +191,15 @@ impl eframe::App for TemplateApp {
 
                         if ui.button("Reset").clicked() {
                             timer.reset();
+                        }
+                        if timer.pause_elapsed_ms.is_some() {
+                            if ui.button("Unpause").clicked() {
+                                timer.unpause();
+                            }
+                        } else {
+                            if ui.button("Pause").clicked() {
+                                timer.pause();
+                            }
                         }
                     } else {
                         TextEdit::singleline(&mut timer.hours)
