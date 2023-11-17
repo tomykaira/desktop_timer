@@ -17,11 +17,13 @@ pub struct Timer {
     started_ms: Option<u64>,
     pause_elapsed_ms: Option<u64>,
     auto_restart: bool,
+    restart_count: u64,
 }
 
 impl Timer {
     fn start(&mut self) {
         self.started_ms = Some(Self::time_millis());
+        self.restart_count += 1;
     }
 
     fn pause(&mut self) {
@@ -48,6 +50,7 @@ impl Timer {
     fn reset(&mut self) {
         self.started_ms = None;
         self.pause_elapsed_ms = None;
+        self.restart_count = 0;
     }
 
     fn rest_duration(&self) -> Option<Duration> {
@@ -83,6 +86,7 @@ impl Default for Timer {
             started_ms: None,
             pause_elapsed_ms: None,
             auto_restart: false,
+            restart_count: 0,
         }
     }
 }
@@ -230,6 +234,9 @@ impl eframe::App for TemplateApp {
                         .show(ui)
                         .response;
                     ui.checkbox(&mut timer.auto_restart, "Loop");
+                    if timer.auto_restart && timer.started_ms.is_some() {
+                        ui.label(format!("{} times", timer.restart_count));
+                    }
                 });
             }
             for idx in remove_indices {
