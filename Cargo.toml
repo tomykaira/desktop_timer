@@ -7,7 +7,7 @@ rust-version = "1.56"
 
 [dependencies]
 chrono = "0.4"
-eframe = "0.21.3" # Gives us egui, epi and web+native backends
+eframe = "0.23.0" # Gives us egui, epi and web+native backends
 rodio = "0.17.1"
 serde = { version = "1", features = ["derive"], optional = true }
 tokio = { version = "1.15", features = ["rt", "time", "macros", "rt-multi-thread"] }
