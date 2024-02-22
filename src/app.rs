@@ -63,9 +63,9 @@ impl Timer {
             } else {
                 now.duration_since(start).expect("Time went backwards")
             };
-        let hours = self.hours.parse::<u32>().expect("invalid hours");
-        let minutes = self.minutes.parse::<u32>().expect("invalid minutes");
-        let seconds = self.seconds.parse::<u32>().expect("invalid seconds");
+        let hours = self.hours.parse::<u32>().unwrap_or(0);
+        let minutes = self.minutes.parse::<u32>().unwrap_or(0);
+        let seconds = self.seconds.parse::<u32>().unwrap_or(0);
         let total_secs = hours * 3600 + minutes * 60 + seconds;
         let timer_duration = Duration::from_secs(total_secs as u64);
         if timer_duration <= elapsed {
