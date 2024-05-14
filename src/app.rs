@@ -1,10 +1,14 @@
-use eframe;
-use eframe::egui::{Color32, FontFamily, FontId, Margin, RichText, TextEdit, TextStyle};
-use eframe::egui;
-use rodio::source::{SineWave, Source};
-use rodio::{OutputStream, Sink};
 use std::ops::Add;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use eframe;
+use eframe::egui;
+use eframe::egui::{
+    Color32, FontFamily, FontId, Id, RichText, Sense, TextEdit, TextStyle, ViewportCommand, Visuals,
+};
+use eframe::epaint::Shadow;
+use rodio::source::{SineWave, Source};
+use rodio::{OutputStream, Sink};
 use tokio::{task, time};
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -27,7 +31,7 @@ impl Timer {
     }
 
     fn pause(&mut self) {
-        if let (None, Some(start))  = (self.pause_elapsed_ms, self.started_ms) {
+        if let (None, Some(start)) = (self.pause_elapsed_ms, self.started_ms) {
             self.pause_elapsed_ms = Some(Self::time_millis() - start);
         }
     }
@@ -57,12 +61,11 @@ impl Timer {
         let s = self.started_ms?;
         let now = SystemTime::now();
         let start = UNIX_EPOCH.add(Duration::from_millis(s));
-        let elapsed =
-            if let Some(p) = self.pause_elapsed_ms {
-                Duration::from_millis(p)
-            } else {
-                now.duration_since(start).expect("Time went backwards")
-            };
+        let elapsed = if let Some(p) = self.pause_elapsed_ms {
+            Duration::from_millis(p)
+        } else {
+            now.duration_since(start).expect("Time went backwards")
+        };
         let hours = self.hours.parse::<u32>().unwrap_or(0);
         let minutes = self.minutes.parse::<u32>().unwrap_or(0);
         let seconds = self.seconds.parse::<u32>().unwrap_or(0);
@@ -105,12 +108,19 @@ impl TemplateApp {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
 
         let mut style = (*cc.egui_ctx.style()).clone();
+        style.wrap = Some(false);
         style.text_styles = [
             (TextStyle::Body, FontId::new(28.0, FontFamily::Proportional)),
-            (TextStyle::Small, FontId::new(24.0, FontFamily::Proportional)),
-            (TextStyle::Button, FontId::new(16.0, FontFamily::Proportional)),
+            (
+                TextStyle::Small,
+                FontId::new(24.0, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Button,
+                FontId::new(16.0, FontFamily::Proportional),
+            ),
         ]
-            .into();
+        .into();
         cc.egui_ctx.set_style(style);
 
         let ctx = cc.egui_ctx.to_owned();
@@ -138,7 +148,10 @@ impl TemplateApp {
 
 impl Default for TemplateApp {
     fn default() -> Self {
-        Self { timers: vec![], flash_count: 0 }
+        Self {
+            timers: vec![],
+            flash_count: 0,
+        }
     }
 }
 
@@ -146,107 +159,129 @@ impl eframe::App for TemplateApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let Self { timers, flash_count } = self;
+        let Self {
+            timers,
+            flash_count,
+        } = self;
 
         ctx.set_pixels_per_point(2.0f32);
         let now = chrono::Local::now();
+        let utc = chrono::Utc::now();
         let time = now.format("%H:%M:%S").to_string();
+        let utc_time = utc.format("%H:%M:%S").to_string();
         let date = now.format("%Y/%m/%d %a").to_string();
 
-        let mut frm = egui::containers::Frame::default();
-        frm = frm.inner_margin(Margin::same(10.0));
-        frm = frm.fill( if *flash_count % 2 == 1 { Color32::RED } else { Color32::from_rgb(240, 240, 240) });
         if *flash_count > 0 {
             *flash_count -= 1;
         }
 
-        egui::CentralPanel::default().frame(frm).show(ctx, |ui| {
-            // Current time
-            ui.horizontal(|ui| {
-                ui.label(RichText::from(time));
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+        let style = ctx.style();
+        let mut main_frame = egui::containers::Frame::group(&style);
+        main_frame.fill = if *flash_count % 2 == 1 {
+            Color32::RED
+        } else {
+            Color32::from_white_alpha(64)
+        };
+        main_frame.stroke.width = 0.0;
+        main_frame.shadow = Shadow::NONE;
+
+        egui::TopBottomPanel::top("main")
+            .frame(main_frame)
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                let app_rect = ui.max_rect();
+                let response = ui.interact(app_rect, Id::new("app"), Sense::drag());
+                if response.drag_started() {
+                    ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+                }
+
+                // Current time
+                ui.horizontal(|ui| {
+                    ui.label(RichText::from(time));
                     ui.label(RichText::from(date).small());
                 });
-            });
 
-            // Timers
-            let mut remove_indices = vec![];
-            for (idx, timer) in timers.as_mut_slice().iter_mut().enumerate() {
-                ui.horizontal(|ui| {
-                    if let Some(r) = timer.rest_duration() {
-                        if r.is_zero() {
-                            // time up
-                            ui.colored_label(Color32::RED, "00:00:00");
+                // Current UTC
+                ui.label(RichText::from(utc_time));
 
-                            if timer.auto_restart {
-                                play_beep();
-                                *flash_count = 10;
+                // Timers
+                let mut remove_indices = vec![];
+                for (idx, timer) in timers.as_mut_slice().iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        if let Some(r) = timer.rest_duration() {
+                            if r.is_zero() {
+                                // time up
+                                ui.colored_label(Color32::RED, "00:00:00");
+
+                                if timer.auto_restart {
+                                    play_beep();
+                                    *flash_count = 10;
+                                    timer.start();
+                                }
+                            } else {
+                                let rest_sec = r.as_secs();
+
+                                let rest_h = rest_sec / 3600;
+                                let rest_m = (rest_sec % 3600) / 60;
+                                let rest_s = rest_sec % 60;
+
+                                ui.label(format!("{:02}:{:02}:{:02}", rest_h, rest_m, rest_s));
+                            }
+
+                            if ui.button("Reset").clicked() {
+                                timer.reset();
+                            }
+                            if timer.pause_elapsed_ms.is_some() {
+                                if ui.button("Unpause").clicked() {
+                                    timer.unpause();
+                                }
+                            } else {
+                                if ui.button("Pause").clicked() {
+                                    timer.pause();
+                                }
+                            }
+                        } else {
+                            TextEdit::singleline(&mut timer.hours)
+                                .desired_width(40.0)
+                                .show(ui)
+                                .response;
+                            ui.label(":");
+                            TextEdit::singleline(&mut timer.minutes)
+                                .desired_width(40.0)
+                                .show(ui)
+                                .response;
+                            ui.label(":");
+                            TextEdit::singleline(&mut timer.seconds)
+                                .desired_width(40.0)
+                                .show(ui)
+                                .response;
+                            if ui.button("Start").clicked() {
                                 timer.start();
                             }
-                        } else {
-                            let rest_sec = r.as_secs();
-
-                            let rest_h = rest_sec / 3600;
-                            let rest_m = (rest_sec % 3600) / 60;
-                            let rest_s = rest_sec % 60;
-
-                            ui.label(format!("{:02}:{:02}:{:02}", rest_h, rest_m, rest_s));
                         }
-
-                        if ui.button("Reset").clicked() {
-                            timer.reset();
+                        if ui.button("x").clicked() {
+                            remove_indices.push(idx);
                         }
-                        if timer.pause_elapsed_ms.is_some() {
-                            if ui.button("Unpause").clicked() {
-                                timer.unpause();
-                            }
-                        } else {
-                            if ui.button("Pause").clicked() {
-                                timer.pause();
-                            }
-                        }
-                    } else {
-                        TextEdit::singleline(&mut timer.hours)
-                            .desired_width(40.0)
+                    });
+                    ui.horizontal(|ui| {
+                        TextEdit::singleline(&mut timer.label)
+                            .desired_width(160.0)
                             .show(ui)
                             .response;
-                        ui.label(":");
-                        TextEdit::singleline(&mut timer.minutes)
-                            .desired_width(40.0)
-                            .show(ui)
-                            .response;
-                        ui.label(":");
-                        TextEdit::singleline(&mut timer.seconds)
-                            .desired_width(40.0)
-                            .show(ui)
-                            .response;
-                        if ui.button("Start").clicked() {
-                            timer.start();
+                        ui.checkbox(&mut timer.auto_restart, "Loop");
+                        if timer.auto_restart && timer.started_ms.is_some() {
+                            ui.label(format!("{} times", timer.restart_count));
                         }
-                    }
-                    if ui.button("x").clicked() {
-                        remove_indices.push(idx);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    TextEdit::singleline(&mut timer.label)
-                        .desired_width(160.0)
-                        .show(ui)
-                        .response;
-                    ui.checkbox(&mut timer.auto_restart, "Loop");
-                    if timer.auto_restart && timer.started_ms.is_some() {
-                        ui.label(format!("{} times", timer.restart_count));
-                    }
-                });
-            }
-            for idx in remove_indices {
-                timers.remove(idx);
-            }
+                    });
+                }
+                for idx in remove_indices {
+                    timers.remove(idx);
+                }
 
-            if ui.button("+ New timer").clicked() {
-                timers.push(Timer::default());
-            }
-        });
+                if ui.button("+ New timer").clicked() {
+                    timers.push(Timer::default());
+                }
+            });
     }
 
     /// Called by the frame work to save state before shutdown.
@@ -254,6 +289,10 @@ impl eframe::App for TemplateApp {
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
+    }
+
+    fn clear_color(&self, _visuals: &Visuals) -> [f32; 4] {
+        egui::Color32::from_rgba_unmultiplied(240, 240, 240, 0).to_normalized_gamma_f32()
     }
 }
 
